@@ -84,6 +84,8 @@ class UNetCond(nn.Module):
         if labels is not None:
             v += self.label_emb(labels)
 
+        print("hoge: " + str(v.shape))
+
         x1 = self.down1(x, v)
         x = self.maxpool(x1)
         x2 = self.down2(x, v)

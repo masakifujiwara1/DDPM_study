@@ -11,7 +11,7 @@ from tqdm import tqdm
 from model.utils.unet import UNet, UNetCond
 from model.utils.diffuser import Diffuser
 
-img_size = 28
+img_size = 32
 b_size = 128
 num_timeseteps = 1000
 epochs = 10
@@ -32,7 +32,7 @@ def show_images(imgs, rows=2, cols=10, labels=None):
     plt.show()
 
 preprocess = transforms.ToTensor()
-dataset = torchvision.datasets.MNIST(root='./data', transform=preprocess, download=True)
+dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
 dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
