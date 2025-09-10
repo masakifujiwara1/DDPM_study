@@ -14,19 +14,20 @@ from model.utils.diffuser import Diffuser
 img_size = 32
 b_size = 128
 num_timeseteps = 1000
-epochs = 10
+epochs = 20
 lr = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
 
 def show_images(imgs, rows=2, cols=10, labels=None):
+    # imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()  # Convert to (N, H, W, C) and move to CPU
     fig = plt.figure(figsize=(cols, rows))
     i = 0
     for r in range(rows):
         for c in range(cols):
             fig.add_subplot(rows, cols, i + 1)
-            plt.imshow(imgs[i], cmap='gray')
-            plt.title(f' {labels[i].item()}' if labels is not None else '')
+            plt.imshow(imgs[i])
+            plt.title(f'{labels[i].item()}' if labels is not None else '')
             plt.axis('off')
             i += 1
     plt.show()
@@ -37,7 +38,7 @@ dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
 # model = UNet()
-model = UNetCond(num_labels=10)
+model = UNetCond(in_ch=3, num_labels=10)
 model = model.to(device)
 optimizer = Adam(model.parameters(), lr=lr)
 losses = []
@@ -47,6 +48,11 @@ for epoch in range(epochs):
     cnt = 0
 
     for imgs, labels in tqdm(dataloader):
+
+        # x = imgs.clone()
+        # imgs = [diffuser.reverse2img(x[i]) for i in range(128)]
+        # show_images(imgs, labels=labels)
+
         optimizer.zero_grad()
         x = imgs.to(device)
         labels = labels.to(device)
