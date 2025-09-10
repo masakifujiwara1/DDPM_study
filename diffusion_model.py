@@ -8,13 +8,13 @@ from torch.optim import Adam
 import torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm
-from model.utils.unet import UNet, UNetCond
+from model.utils.unet import UNet, UNetCond, UNetCondDeep
 from model.utils.diffuser import Diffuser
 
 img_size = 32
 b_size = 128
 num_timeseteps = 1000
-epochs = 20
+epochs = 1
 lr = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
@@ -38,7 +38,7 @@ dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
 # model = UNet()
-model = UNetCond(in_ch=3, num_labels=10)
+model = UNetCondDeep(in_ch=3, num_labels=10)
 model = model.to(device)
 optimizer = Adam(model.parameters(), lr=lr)
 losses = []
