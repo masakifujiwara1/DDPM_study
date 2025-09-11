@@ -10,12 +10,14 @@ from torch import nn
 from tqdm import tqdm
 from model.utils.unet import UNet, UNetCond, UNetCondDeep
 from model.utils.diffuser import Diffuser
+import wandb
+# from wandb import Alertlevel
 
 img_size = 32
-b_size = 16
+b_size = 64
 num_timeseteps = 1000
 epochs = 100
-lr = 1e-3
+lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
 
@@ -46,36 +48,52 @@ model = model.to(device)
 optimizer = Adam(model.parameters(), lr=lr)
 losses = []
 
-for epoch in range(epochs):
-    loss_sum = 0.0
-    cnt = 0
+config_dict = {
+    "dataset": "CIFAR10",
+    "model": model,
+    "epochs": epochs,
+    "batch_size": b_size,
+    "learning_rate": lr,
+    "num_timesteps": num_timeseteps,
+    "optimizer": optimizer,
+    "loss_function": "MSELoss",
+    "dataloader": dataloader,
+}
+with wandb.init(project="DDPM_study", group="cifar10", name="norm_lr_bsize_ver", config=config_dict):
 
-    for imgs, labels in tqdm(dataloader):
+    for epoch in range(epochs):
+        loss_sum = 0.0
+        cnt = 0
 
-        # x = imgs.clone()
-        # imgs = [diffuser.reverse2img(x[i]) for i in range(128)]
-        # show_images(imgs, labels=labels)
+        for imgs, labels in tqdm(dataloader):
 
-        optimizer.zero_grad()
-        x = imgs.to(device)
-        labels = labels.to(device)
-        t = torch.randint(1, num_timeseteps+1, (len(x), ), device=device)
+            # x = imgs.clone()
+            # imgs = [diffuser.reverse2img(x[i]) for i in range(128)]
+            # show_images(imgs, labels=labels)
 
-        x_noisy, noise = diffuser.add_noise(x, t)
-        noise_pred = model(x_noisy, t, labels)
-        loss = F.mse_loss(noise, noise_pred)
+            optimizer.zero_grad()
+            x = imgs.to(device)
+            labels = labels.to(device)
+            t = torch.randint(1, num_timeseteps+1, (len(x), ), device=device)
 
-        loss.backward()
-        optimizer.step()
+            x_noisy, noise = diffuser.add_noise(x, t)
+            noise_pred = model(x_noisy, t, labels)
+            loss = F.mse_loss(noise, noise_pred)
 
-        loss_sum += loss.item()
-        cnt += 1
+            loss.backward()
+            optimizer.step()
 
-    loss_avg = loss_sum / cnt
-    losses.append(loss_avg)
-    print(f"Epoch {epoch}, Loss: {loss_avg}")
-    if (epoch + 1) % 10 == 0:
-        torch.save(model.state_dict(), f'checkpoint/norm/model_cifar10_epoch{epoch+1}.pth')
+            loss_sum += loss.item()
+            cnt += 1
+
+        loss_avg = loss_sum / cnt
+        wandb.log({"loss": loss_avg, "epoch": epoch})
+        losses.append(loss_avg)
+        print(f"Epoch {epoch}, Loss: {loss_avg}")
+        if (epoch + 1) % 10 == 0:
+            torch.save(model.state_dict(), f'checkpoint/norm_lr_bsize/model_cifar10_epoch{epoch+1}.pth')
+
+wandb.finish()
 
 plt.plot(losses)
 plt.xlabel('Epoch')
