@@ -67,6 +67,7 @@ class Diffuser:
         return imgs, labels
 
     def reverse2img(self, x):
+        x = (x * 0.5) + 0.5
         x = x * 255
         x = x.clamp(0, 255)
         x = x.to(torch.uint8)
