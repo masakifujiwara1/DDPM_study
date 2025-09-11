@@ -12,9 +12,9 @@ from model.utils.unet import UNet, UNetCond, UNetCondDeep
 from model.utils.diffuser import Diffuser
 
 img_size = 32
-b_size = 128
+b_size = 16
 num_timeseteps = 1000
-epochs = 1
+epochs = 100
 lr = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
@@ -32,9 +32,12 @@ def show_images(imgs, rows=2, cols=10, labels=None):
             i += 1
     plt.show()
 
-preprocess = transforms.ToTensor()
+preprocess = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+])
 dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
-dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True, num_workers=2)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
 # model = UNet()
@@ -71,6 +74,8 @@ for epoch in range(epochs):
     loss_avg = loss_sum / cnt
     losses.append(loss_avg)
     print(f"Epoch {epoch}, Loss: {loss_avg}")
+    if (epoch + 1) % 10 == 0:
+        torch.save(model.state_dict(), f'checkpoint/norm/model_cifar10_epoch{epoch+1}.pth')
 
 plt.plot(losses)
 plt.xlabel('Epoch')
