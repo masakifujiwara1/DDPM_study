@@ -59,7 +59,7 @@ config_dict = {
     "loss_function": "MSELoss",
     "dataloader": dataloader,
 }
-with wandb.init(project="DDPM_study", group="cifar10", name="norm_lr_bsize_ver", config=config_dict):
+with wandb.init(project="DDPM_study", group="cifar10", name="deepU_ver", config=config_dict):
 
     for epoch in range(epochs):
         loss_sum = 0.0
@@ -87,11 +87,16 @@ with wandb.init(project="DDPM_study", group="cifar10", name="norm_lr_bsize_ver",
             cnt += 1
 
         loss_avg = loss_sum / cnt
-        wandb.log({"loss": loss_avg, "epoch": epoch})
+        wandb.log({"loss": loss_avg}, step=epoch)
         losses.append(loss_avg)
         print(f"Epoch {epoch}, Loss: {loss_avg}")
         if (epoch + 1) % 10 == 0:
-            torch.save(model.state_dict(), f'checkpoint/norm_lr_bsize/model_cifar10_epoch{epoch+1}.pth')
+            torch.save(model.state_dict(), f'checkpoint/deepU/model_cifar10_epoch{epoch+1}.pth')
+
+        if (epoch + 1) % 5 == 0:
+            imgs_sampled, sample_labels = diffuser.sample(model)
+            wandb_images = [wandb.Image(img, caption=str(lbl.item())) for img, lbl in zip(imgs_sampled, sample_labels)]
+            wandb.log({"samples": wandb_images}, step=epoch)
 
 wandb.finish()
 
