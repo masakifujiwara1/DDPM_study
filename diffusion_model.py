@@ -40,7 +40,8 @@ preprocess = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
-dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
+# dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
+dataset = torchvision.datasets.ImageFolder(root='~/../host_files/cifar10-64/train', transform=preprocess)
 dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True, num_workers=2)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
@@ -52,7 +53,7 @@ scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_
 losses = []
 
 config_dict = {
-    "dataset": "CIFAR10",
+    "dataset": "CIFAR10-64",
     "model": model,
     "epochs": epochs,
     "batch_size": b_size,
