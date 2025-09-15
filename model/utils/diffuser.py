@@ -52,7 +52,7 @@ class Diffuser:
         std = torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar) * (1 - alpha))
         return mu + noise * std
 
-    def sample(self, model, x_shape=(20, 3, 32, 32), labels=None):
+    def sample(self, model, x_shape=(20, 3, 64, 64), labels=None):
         b_size = x_shape[0]
         x = torch.randn(x_shape, device=self.device)
 

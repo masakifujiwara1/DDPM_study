@@ -70,7 +70,7 @@ ema_model = copy.deepcopy(model).eval()
 for p in ema_model.parameters():
     p.requires_grad_(False)
 
-with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema-scheduler_ver", config=config_dict):
+with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema-scheduler_64ver", config=config_dict):
 
     for epoch in range(epochs):
         loss_sum = 0.0
