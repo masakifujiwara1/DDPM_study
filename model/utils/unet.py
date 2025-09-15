@@ -16,7 +16,9 @@ class ConvBlock(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(time_emb_dim, time_emb_dim),
             nn.ReLU(),
-            nn.Linear(time_emb_dim, in_ch),
+            nn.Linear(time_emb_dim, time_emb_dim//2),
+            nn.ReLU(),
+            nn.Linear(time_emb_dim//2, in_ch),
             nn.ReLU(),
             nn.Linear(in_ch, in_ch)
         )

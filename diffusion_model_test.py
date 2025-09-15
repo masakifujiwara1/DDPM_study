@@ -43,7 +43,7 @@ model = model.to(device)
 optimizer = Adam(model.parameters(), lr=lr)
 losses = []
 
-model.load_state_dict(torch.load('checkpoint/norm_lr_bsize/model_cifar10_epoch90.pth', map_location=device))
+model.load_state_dict(torch.load('checkpoint/deepU-mlp-ema/model_cifar10_epoch60.pth', map_location=device))
 
 # for epoch in range(epochs):
 #     loss_sum = 0.0
