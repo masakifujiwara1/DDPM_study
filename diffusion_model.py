@@ -15,10 +15,10 @@ import copy
 # from wandb import Alertlevel
 
 img_size = 32
-b_size = 64
+b_size = 128
 num_timeseteps = 1000
 epochs = 100
-lr = 1e-4
+lr = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
 
@@ -48,6 +48,7 @@ diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
 model = UNetCondDeep(in_ch=3, num_labels=10)
 model = model.to(device)
 optimizer = Adam(model.parameters(), lr=lr)
+scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataloader), epochs=epochs)
 losses = []
 
 config_dict = {
@@ -63,12 +64,12 @@ config_dict = {
 }
 
 # ema initialization
-ema_decay = 0.9999
+ema_decay = 0.995
 ema_model = copy.deepcopy(model).eval()
 for p in ema_model.parameters():
     p.requires_grad_(False)
 
-with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema_ver", config=config_dict):
+with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema-scheduler_ver", config=config_dict):
 
     for epoch in range(epochs):
         loss_sum = 0.0
@@ -91,6 +92,7 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema_ver",
 
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             with torch.no_grad():
                 msd = model.state_dict()
@@ -102,11 +104,11 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema_ver",
             cnt += 1
 
         loss_avg = loss_sum / cnt
-        wandb.log({"loss": loss_avg}, step=epoch)
+        wandb.log({"loss": loss_avg, "learning_rate": scheduler.get_last_lr()[0]}, step=epoch)
         losses.append(loss_avg)
         print(f"Epoch {epoch}, Loss: {loss_avg}")
-        if (epoch + 1) % 10 == 0:
-            torch.save(ema_model.state_dict(), f'checkpoint/deepU-mlp-ema/model_cifar10_epoch{epoch+1}.pth')
+        # if (epoch + 1) % 10 == 0:
+        #     torch.save(ema_model.state_dict(), f'checkpoint/deepU-mlp-ema-scheduler/model_cifar10_epoch{epoch+1}.pth')
 
         if (epoch + 1) % 5 == 0:
             # 0~9を2回繰り返したラベルを作成
