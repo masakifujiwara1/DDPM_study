@@ -9,8 +9,17 @@ class Diffuser:
         self.device = device
 
         self.betas = torch.linspace(beta_start, beta_end, num_timesteps).to(device)
+        # self.betas = self.cosine_schedule().to(device)
         self.alphas = 1.0 - self.betas
         self.alpha_bars = torch.cumprod(self.alphas, dim=0)
+
+    def cosine_schedule(self, s=0.008):
+        x = torch.arange(self.num_timesteps + 1, dtype=torch.float64, device=self.device) / self.num_timesteps
+        alphas_cumprod = torch.cos(((x / self.num_timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        alpha_bars = alphas_cumprod[1:].to(self.device)
+        betas = 1 - (alpha_bars[1:] / alpha_bars[:-1])
+        return torch.clip(betas, 0.0001, 0.9999)
 
     def add_noise(self, x_0, t):
         T = self.num_timesteps

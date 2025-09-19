@@ -4,7 +4,7 @@ import torchvision
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 import torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm
@@ -18,7 +18,7 @@ img_size = 32
 b_size = 128
 num_timeseteps = 1000
 epochs = 100
-lr = 1e-3
+lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
 
@@ -47,7 +47,7 @@ diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
 # model = UNet()
 model = UNetCondDeep(in_ch=3, num_labels=10)
 model = model.to(device)
-optimizer = Adam(model.parameters(), lr=lr)
+optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.0)
 scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataloader), epochs=epochs)
 losses = []
 
@@ -69,7 +69,7 @@ ema_model = copy.deepcopy(model).eval()
 for p in ema_model.parameters():
     p.requires_grad_(False)
 
-with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema-scheduler_ver", config=config_dict):
+with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw_ver", config=config_dict):
 
     for epoch in range(epochs):
         loss_sum = 0.0
@@ -84,8 +84,8 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU-mlp-ema-sched
             optimizer.zero_grad()
             x = imgs.to(device)
             labels = labels.to(device)
-            t = torch.randint(1, num_timeseteps+1, (len(x), ), device=device)
-
+            t = torch.randint(1, num_timeseteps, (len(x), ), device=device)
+            print(f"t min: {t.min()}, t max: {t.max()}")
             x_noisy, noise = diffuser.add_noise(x, t)
             noise_pred = model(x_noisy, t, labels)
             loss = F.mse_loss(noise, noise_pred)
