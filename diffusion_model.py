@@ -69,7 +69,7 @@ ema_model = copy.deepcopy(model).eval()
 for p in ema_model.parameters():
     p.requires_grad_(False)
 
-with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw_ver", config=config_dict):
+with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw-noema-cos_ver", config=config_dict):
 
     for epoch in range(epochs):
         loss_sum = 0.0
@@ -85,7 +85,7 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw_ver", 
             x = imgs.to(device)
             labels = labels.to(device)
             t = torch.randint(1, num_timeseteps, (len(x), ), device=device)
-            print(f"t min: {t.min()}, t max: {t.max()}")
+            # print(f"t min: {t.min()}, t max: {t.max()}")
             x_noisy, noise = diffuser.add_noise(x, t)
             noise_pred = model(x_noisy, t, labels)
             loss = F.mse_loss(noise, noise_pred)
@@ -113,7 +113,7 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw_ver", 
         if (epoch + 1) % 5 == 0:
             # 0~9を2回繰り返したラベルを作成
             sample_labels = torch.tensor([i for i in range(10)] * 2, device=device)
-            imgs_sampled, sample_labels = diffuser.sample(ema_model, labels=sample_labels)
+            imgs_sampled, sample_labels = diffuser.sample(model, labels=sample_labels)
             # 画像グリッドを作成し、wandbに登録
             fig = show_images(imgs_sampled, labels=sample_labels)
             wandb.log({"samples_grid": wandb.Image(fig, caption=f"Epoch {epoch+1} grid")}, step=epoch+1)
@@ -124,11 +124,11 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw_ver", 
 
 wandb.finish()
 
-plt.plot(losses)
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.show()
+# plt.plot(losses)
+# plt.xlabel('Epoch')
+# plt.ylabel('Loss')
+# plt.show()
 
-imgs, labels = diffuser.sample(model)
-fig = show_images(imgs, labels=labels)
-plt.show()
+# imgs, labels = diffuser.sample(model)
+# fig = show_images(imgs, labels=labels)
+# plt.show()
