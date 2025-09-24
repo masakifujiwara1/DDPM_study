@@ -8,18 +8,18 @@ class ConvBlock(nn.Module):
         self.convs = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU()
+            nn.SiLU()
         )
         self.mlp = nn.Sequential(
             nn.Linear(time_emb_dim, time_emb_dim),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Linear(time_emb_dim, time_emb_dim//2),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Linear(time_emb_dim//2, in_ch),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Linear(in_ch, in_ch)
         )
 

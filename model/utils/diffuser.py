@@ -10,8 +10,8 @@ class Diffuser:
         self.num_timesteps = num_timesteps
         self.device = device
 
-        # self.betas = torch.linspace(beta_start, beta_end, num_timesteps).to(device)
-        self.betas = self.cosine_schedule(lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2).to(device)
+        self.betas = torch.linspace(beta_start, beta_end, num_timesteps).to(device)
+        # self.betas = self.cosine_schedule(lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2).to(device)
         self.alphas = 1.0 - self.betas
         self.alpha_bars = torch.cumprod(self.alphas, dim=0)
 
