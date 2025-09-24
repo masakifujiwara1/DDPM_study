@@ -41,7 +41,7 @@ preprocess = transforms.Compose([
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
 dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
-dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True, num_workers=2)
+dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True, num_workers=4, pin_memory=True)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
 # model = UNet()
