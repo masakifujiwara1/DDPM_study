@@ -47,7 +47,7 @@ class AttentionBlock(nn.Module):
         return self.attention(x)
 
 class ConvBlockWithAttention(nn.Module):
-    def __init__(self, in_ch, out_ch, time_emb_dim, use_attention=False):
+    def __init__(self, in_ch, out_ch, time_emb_dim, use_attention=True):
         super().__init__()
         self.use_attention = use_attention
         self.convs = nn.Sequential(

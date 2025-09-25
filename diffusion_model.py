@@ -17,7 +17,7 @@ import copy
 img_size = 32
 b_size = 128
 num_timeseteps = 1000
-epochs = 300
+epochs =200
 lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
