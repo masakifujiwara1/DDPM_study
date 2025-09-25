@@ -17,7 +17,7 @@ import copy
 img_size = 32
 b_size = 128
 num_timeseteps = 1000
-epochs = 100
+epochs = 300
 lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
@@ -69,7 +69,7 @@ ema_model = copy.deepcopy(model).eval()
 for p in ema_model.parameters():
     p.requires_grad_(False)
 
-with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw-noema-cos_ver", config=config_dict):
+with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-attention-silu_ver", config=config_dict):
 
     for epoch in range(epochs):
         loss_sum = 0.0

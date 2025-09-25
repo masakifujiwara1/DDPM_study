@@ -2,15 +2,62 @@ import torch
 from torch import nn
 from model.utils.pos_encoding import pos_encoding
 
-class ConvBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, time_emb_dim):
+import torch
+from torch import nn
+import torch.nn.functional as F
+from model.utils.pos_encoding import pos_encoding
+import math
+
+class SelfAttention(nn.Module):
+    def __init__(self, in_ch, num_heads=8):
         super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = in_ch // num_heads
+        assert in_ch % num_heads == 0
+        
+        self.qkv = nn.Linear(in_ch, in_ch * 3)
+        self.proj = nn.Linear(in_ch, in_ch)
+        self.norm = nn.GroupNorm(32, in_ch)
+        
+    def forward(self, x):
+        b, c, h, w = x.shape
+        x_norm = self.norm(x)
+        x_flat = x_norm.view(b, c, h * w).transpose(1, 2)  # (b, h*w, c)
+        
+        qkv = self.qkv(x_flat).chunk(3, dim=-1)
+        q, k, v = map(lambda t: t.view(b, h * w, self.num_heads, self.head_dim).transpose(1, 2), qkv)
+        
+        # Scaled dot-product attention
+        scale = 1 / math.sqrt(self.head_dim)
+        attn = torch.softmax(torch.matmul(q, k.transpose(-1, -2)) * scale, dim=-1)
+        out = torch.matmul(attn, v)
+        
+        out = out.transpose(1, 2).contiguous().view(b, h * w, c)
+        out = self.proj(out)
+        out = out.transpose(1, 2).view(b, c, h, w)
+        
+        return x + out  # residual connection
+
+class AttentionBlock(nn.Module):
+    def __init__(self, in_ch, num_heads=8):
+        super().__init__()
+        self.attention = SelfAttention(in_ch, num_heads)
+        
+    def forward(self, x):
+        return self.attention(x)
+
+class ConvBlockWithAttention(nn.Module):
+    def __init__(self, in_ch, out_ch, time_emb_dim, use_attention=False):
+        super().__init__()
+        self.use_attention = use_attention
         self.convs = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_ch),
+            # nn.BatchNorm2d(out_ch),
+            nn.GroupNorm(out_ch, out_ch),
             nn.SiLU(),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_ch),
+            # nn.BatchNorm2d(out_ch),
+            nn.GroupNorm(out_ch, out_ch),
             nn.SiLU()
         )
         self.mlp = nn.Sequential(
@@ -23,11 +70,16 @@ class ConvBlock(nn.Module):
             nn.Linear(in_ch, in_ch)
         )
 
+        if use_attention:
+            self.attention = AttentionBlock(out_ch, num_heads=8)
+
     def forward(self, x, v):
         N , C, _, _ = x.shape
         v = self.mlp(v)
         v = v.view(N, C, 1, 1)
         y = self.convs(x + v)
+        if self.use_attention:
+            y = self.attention(y)
         return y
 
 class UNet(nn.Module):
@@ -35,11 +87,11 @@ class UNet(nn.Module):
         super().__init__()
         self.time_emb_dim = time_emb_dim
 
-        self.down1 = ConvBlock(in_ch, 64, time_emb_dim)
-        self.down2 = ConvBlock(64, 128, time_emb_dim)
-        self.bot1 = ConvBlock(128, 256, time_emb_dim)
-        self.up2 = ConvBlock(128 + 256, 128, time_emb_dim)
-        self.up1 = ConvBlock(128 + 64, 64, time_emb_dim)
+        self.down1 = ConvBlockWithAttention(in_ch, 64, time_emb_dim)
+        self.down2 = ConvBlockWithAttention(64, 128, time_emb_dim)
+        self.bot1 = ConvBlockWithAttention(128, 256, time_emb_dim)
+        self.up2 = ConvBlockWithAttention(128 + 256, 128, time_emb_dim)
+        self.up1 = ConvBlockWithAttention(128 + 64, 64, time_emb_dim)
         self.out = nn.Conv2d(64, in_ch, 1)
 
         self.maxpool = nn.MaxPool2d(2)
@@ -69,11 +121,11 @@ class UNetCond(nn.Module):
         super().__init__()
         self.time_emb_dim = time_emb_dim
         
-        self.down1 = ConvBlock(in_ch, 64, time_emb_dim)
-        self.down2 = ConvBlock(64, 128, time_emb_dim)
-        self.bot1 = ConvBlock(128, 256, time_emb_dim)
-        self.up2 = ConvBlock(128 + 256, 128, time_emb_dim)
-        self.up1 = ConvBlock(128 + 64, 64, time_emb_dim)
+        self.down1 = ConvBlockWithAttention(in_ch, 64, time_emb_dim)
+        self.down2 = ConvBlockWithAttention(64, 128, time_emb_dim)
+        self.bot1 = ConvBlockWithAttention(128, 256, time_emb_dim)
+        self.up2 = ConvBlockWithAttention(128 + 256, 128, time_emb_dim)
+        self.up1 = ConvBlockWithAttention(128 + 64, 64, time_emb_dim)
         self.out = nn.Conv2d(64, in_ch, 1)
 
         self.maxpool = nn.MaxPool2d(2)
@@ -109,15 +161,15 @@ class UNetCondDeep(nn.Module):
         super().__init__()
         self.time_emb_dim = time_emb_dim
         
-        self.down1 = ConvBlock(in_ch, 64, time_emb_dim)
-        self.down2 = ConvBlock(64, 128, time_emb_dim)
-        self.down3 = ConvBlock(128, 256, time_emb_dim)
-        # self.down4 = ConvBlock(256, 512, time_emb_dim)
-        self.bot1 = ConvBlock(256, 512, time_emb_dim)
-        # self.up4 = ConvBlock(512 + 1024, 512, time_emb_dim)
-        self.up3 = ConvBlock(256 + 512, 256, time_emb_dim)
-        self.up2 = ConvBlock(128 + 256, 128, time_emb_dim)
-        self.up1 = ConvBlock(64 + 128, 64, time_emb_dim)
+        self.down1 = ConvBlockWithAttention(in_ch, 64, time_emb_dim)
+        self.down2 = ConvBlockWithAttention(64, 128, time_emb_dim)
+        self.down3 = ConvBlockWithAttention(128, 256, time_emb_dim)
+        # self.down4 = ConvBlockWithAttention(256, 512, time_emb_dim)
+        self.bot1 = ConvBlockWithAttention(256, 512, time_emb_dim)
+        # self.up4 = ConvBlockWithAttention(512 + 1024, 512, time_emb_dim)
+        self.up3 = ConvBlockWithAttention(256 + 512, 256, time_emb_dim)
+        self.up2 = ConvBlockWithAttention(128 + 256, 128, time_emb_dim)
+        self.up1 = ConvBlockWithAttention(64 + 128, 64, time_emb_dim)
         self.out = nn.Conv2d(64, in_ch, 1)
 
         self.maxpool = nn.MaxPool2d(2)
