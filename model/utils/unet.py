@@ -18,9 +18,7 @@ class ConvBlock(nn.Module):
             nn.SiLU(),
             nn.Linear(time_emb_dim, time_emb_dim//2),
             nn.SiLU(),
-            nn.Linear(time_emb_dim//2, in_ch),
-            nn.SiLU(),
-            nn.Linear(in_ch, in_ch)
+            nn.Linear(time_emb_dim//2, in_ch)
         )
 
     def forward(self, x, v):
