@@ -47,7 +47,7 @@ class AttentionBlock(nn.Module):
         return self.attention(x)
 
 class ConvBlockWithAttention(nn.Module):
-    def __init__(self, in_ch, out_ch, time_emb_dim, use_attention=True):
+    def __init__(self, in_ch, out_ch, time_emb_dim, use_attention=False):
         super().__init__()
         self.use_attention = use_attention
         self.convs = nn.Sequential(
@@ -163,11 +163,11 @@ class UNetCondDeep(nn.Module):
         
         self.down1 = ConvBlockWithAttention(in_ch, 64, time_emb_dim)
         self.down2 = ConvBlockWithAttention(64, 128, time_emb_dim)
-        self.down3 = ConvBlockWithAttention(128, 256, time_emb_dim)
+        self.down3 = ConvBlockWithAttention(128, 256, time_emb_dim, use_attention=True)
         # self.down4 = ConvBlockWithAttention(256, 512, time_emb_dim)
-        self.bot1 = ConvBlockWithAttention(256, 512, time_emb_dim)
+        self.bot1 = ConvBlockWithAttention(256, 512, time_emb_dim, use_attention=True)
         # self.up4 = ConvBlockWithAttention(512 + 1024, 512, time_emb_dim)
-        self.up3 = ConvBlockWithAttention(256 + 512, 256, time_emb_dim)
+        self.up3 = ConvBlockWithAttention(256 + 512, 256, time_emb_dim, use_attention=True)
         self.up2 = ConvBlockWithAttention(128 + 256, 128, time_emb_dim)
         self.up1 = ConvBlockWithAttention(64 + 128, 64, time_emb_dim)
         self.out = nn.Conv2d(64, in_ch, 1)
