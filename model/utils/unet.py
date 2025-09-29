@@ -52,12 +52,12 @@ class ConvBlockWithAttention(nn.Module):
         self.use_attention = use_attention
         self.convs = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
-            # nn.BatchNorm2d(out_ch),
-            nn.GroupNorm(out_ch, out_ch),
+            nn.BatchNorm2d(out_ch),
+            # nn.GroupNorm(out_ch, out_ch),
             nn.SiLU(),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
-            # nn.BatchNorm2d(out_ch),
-            nn.GroupNorm(out_ch, out_ch),
+            nn.BatchNorm2d(out_ch),
+            # nn.GroupNorm(out_ch, out_ch),
             nn.SiLU()
         )
         self.mlp = nn.Sequential(
@@ -65,9 +65,7 @@ class ConvBlockWithAttention(nn.Module):
             nn.SiLU(),
             nn.Linear(time_emb_dim, time_emb_dim//2),
             nn.SiLU(),
-            nn.Linear(time_emb_dim//2, in_ch),
-            nn.SiLU(),
-            nn.Linear(in_ch, in_ch)
+            nn.Linear(time_emb_dim//2, in_ch)
         )
 
         if use_attention:

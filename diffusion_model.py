@@ -14,7 +14,7 @@ import wandb
 import copy
 # from wandb import Alertlevel
 
-img_size = 32
+img_size = 64
 b_size = 128
 num_timeseteps = 1000
 epochs =200
@@ -40,7 +40,10 @@ preprocess = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
-dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
+if img_size == 32:
+    dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
+elif img_size == 64:
+    dataset = torchvision.datasets.ImageFolder(root='~/../host_files/cifar10-64/train', transform=preprocess)
 dataloader = DataLoader(dataset, batch_size=b_size, shuffle=True, num_workers=4, pin_memory=True)
 
 diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
@@ -52,7 +55,7 @@ scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_
 losses = []
 
 config_dict = {
-    "dataset": "CIFAR10",
+    "dataset": "CIFAR10" + "-" + str(img_size),
     "model": model,
     "epochs": epochs,
     "batch_size": b_size,
