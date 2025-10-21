@@ -1,5 +1,5 @@
 data/
-# checkpoint/
+checkpoint/
 *.pyc
 wandb/
 __pycache__/
