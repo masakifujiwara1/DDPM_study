@@ -15,7 +15,7 @@ import wandb
 import copy
 # from wandb import Alertlevel
 
-from diffusers import UNet2DModel, DDPMScheduler, DDPMPipeline
+from diffusers import UNet2DModel, UNet2DConditionModel, DDPMScheduler, DDPMPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
 
 from dataclasses import dataclass
@@ -26,13 +26,16 @@ from huggingface_hub import create_repo, upload_folder
 from tqdm.auto import tqdm
 import os
 
+# CUDA メモリ管理の設定
+# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 @dataclass
 class TrainingConfig:
     image_size = 64  # 生成する画像の解像度
-    train_batch_size = 64
-    eval_batch_size = 16  # 評価時にサンプリングする画像数
+    train_batch_size = 64  # バッチサイズをさらに小さく
+    eval_batch_size = 20  # 評価時にサンプリングする画像数
     num_epochs = 100
-    gradient_accumulation_steps = 2
+    gradient_accumulation_steps = 1  # gradient_accumulation_steps を増やす
     learning_rate = 1e-4
     lr_warmup_steps = 500
     save_image_epochs = 10
@@ -83,16 +86,15 @@ train_dataloader = DataLoader(dataset, batch_size=config.train_batch_size, shuff
 # model = UNetCondDeep(in_ch=3, num_labels=10)
 # model = model.to(device)
 
-model = UNet2DModel(
+# model = UNet2DModel(
+model = UNet2DConditionModel(
     sample_size=config.image_size,  # the target image resolution
     in_channels=3,  # the number of input channels, 3 for RGB images
     out_channels=3,  # the number of output channels
     layers_per_block=2,
-    block_out_channels=(128, 128, 256, 256, 512, 512),
+    block_out_channels=(128, 128, 256, 256),
     down_block_types=(
         "DownBlock2D",  # a regular ResNet downsampling block
-        "DownBlock2D",
-        "DownBlock2D",
         "DownBlock2D",
         "AttnDownBlock2D",  # a ResNet downsampling block with attention
         "DownBlock2D",
@@ -102,11 +104,11 @@ model = UNet2DModel(
         "AttnUpBlock2D",
         "UpBlock2D",  # a regular ResNet upsampling block
         "UpBlock2D",
-        "UpBlock2D",
-        "UpBlock2D",
     ),
+    mid_block_type="UNetMidBlock2D",  # the mid-block type, a ResNet block with attention
     # time_embedding_type="positional",  # use positional embeddings for time steps
-    # num_class_embeds=10,  # number of classes for class-conditional generation
+    num_class_embeds=10,  # number of classes for class-conditional generation
+    class_embed_type="timestep"  # use timestep embeddings for class labels
 )
 sample_image = dataset[0][0].unsqueeze(0)
 # print('入力形状:', sample_image.shape)
@@ -129,28 +131,55 @@ def make_grid(images, rows, cols):
         grid.paste(image, box=(i%cols*w, i//cols*h))
     return grid
 
-def evaluate(config, epoch, pipeline):
-    # ランダムノイズから画像をサンプルします（これは逆拡散プロセスです）。
-    # デフォルトのパイプライン出力型は `List[PIL.Image]` です
-    # images = pipeline(
-    #     batch_size = config.eval_batch_size,
-    #     generator=torch.manual_seed(config.seed),
-    # )["sample"]
-    images = pipeline(
-        batch_size = config.eval_batch_size,
-        generator=torch.manual_seed(config.seed),
-    ).images
+def evaluate(config, epoch, pipeline, scheduler, model):
+    # 各クラスごとに画像を生成 (1回の生成で済むようにクラスラベルを設定)
+    num_classes = 10
+    images_per_class = config.eval_batch_size // num_classes
+    class_labels = []
+    for class_idx in range(num_classes):
+        class_labels.extend([class_idx] * images_per_class)
+    class_labels = torch.tensor(class_labels, device=pipeline.device)
 
-    # 画像をグリッドに配置
-    image_grid = make_grid(images, rows=4, cols=4)
+    image = torch.randn((config.eval_batch_size, 3, config.image_size, config.image_size)).to(pipeline.device)
+
+    # images = pipeline(
+    #     batch_size=config.eval_batch_size,
+    #     generator=torch.manual_seed(config.seed),
+    #     class_labels=class_labels
+    # ).images
+
+    # Show sampling progress with tqdm. Display current timestep as postfix.
+    total_steps = len(scheduler.timesteps)
+    for t in tqdm(scheduler.timesteps, desc=f"Sampling (epoch {epoch})", total=total_steps):
+        with torch.no_grad():
+            # ensure we can display the scalar timestep value
+            try:
+                t_val = int(t)
+            except Exception:
+                t_val = t
+            # UNet2DConditionModel expects an `encoder_hidden_states` positional arg in
+            # its forward signature. Provide it explicitly (None when using class_labels)
+            noisy_resiudual = model(image, t, encoder_hidden_states=None, class_labels=class_labels)["sample"]
+            prev_image = scheduler.step(noisy_resiudual, t, image).prev_sample
+            image = prev_image
+        # update postfix for tqdm (not strictly necessary but helpful)
+
+    image = image.clamp(-1, 1)
+    image = (image + 1) / 2  # -> [0,1]
+    image = (image * 255).round().clamp(0, 255).to(torch.uint8)
+    image_np = image.permute(0, 2, 3, 1).contiguous().cpu().numpy()
+    images = [Image.fromarray(image_np[i]) for i in range(image_np.shape[0])]
+
+    # 画像をグリッドに配置 (4x5 のグリッド、20枚)
+    image_grid = make_grid(images, rows=4, cols=5)
 
     # 画像を保存
     test_dir = os.path.join(config.output_dir, "samples")
     os.makedirs(test_dir, exist_ok=True)
-    image_grid.save(f"{test_dir}/{epoch:04d}.png")
+    image_grid.save(f"{test_dir}/{epoch+1:04d}.png")
 
     # Wandb に画像をログ
-    wandb.log({"samples": wandb.Image(image_grid)}, step=epoch)
+    wandb.log({"samples_grid": wandb.Image(image_grid, caption=f"Epoch {epoch+1} grid")}, step=epoch+1)
 
 def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler):
     # Accelerator と Wandb ログの初期化
@@ -182,6 +211,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
         for step, batch in enumerate(train_dataloader):
             clean_images = batch[0]
+            labels = batch[1]  # クラスラベルを取得
             # 画像に加えるノイズをサンプリング
             noise = torch.randn(clean_images.shape).to(clean_images.device)
             bs = clean_images.shape[0]
@@ -195,7 +225,8 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
             with accelerator.accumulate(model):
                 # ノイズ残差を予測
-                noise_pred = model(noisy_images, timesteps)["sample"]
+                # UNet2DConditionModel requires encoder_hidden_states positional arg; pass None
+                noise_pred = model(noisy_images, timesteps, encoder_hidden_states=None, class_labels=labels)["sample"]
                 loss = F.mse_loss(noise_pred, noise)
                 accelerator.backward(loss)
 
@@ -214,7 +245,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             pipeline = DDPMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
 
             if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
-                evaluate(config, epoch, pipeline)
+                evaluate(config, epoch, pipeline, noise_scheduler, model)
 
             if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 if config.push_to_hub:
