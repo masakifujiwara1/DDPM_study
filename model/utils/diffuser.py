@@ -10,10 +10,10 @@ class Diffuser:
         self.num_timesteps = num_timesteps
         self.device = device
 
-        self.betas = torch.linspace(beta_start, beta_end, num_timesteps).to(device)
+        self.betas = torch.linspace(beta_start, beta_end, num_timesteps, dtype=torch.float32, device=device)
         # self.betas = self.cosine_schedule(lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2).to(device)
-        self.alphas = 1.0 - self.betas
-        self.alpha_bars = torch.cumprod(self.alphas, dim=0)
+        self.alphas = 1.0 - self.betas  # (T,)
+        self.alpha_bars = torch.cumprod(self.alphas, dim=0)  # (T,)
 
     def cosine_schedule(self, alpha_bar, max_beta=0.999):
         betas = []
@@ -26,13 +26,13 @@ class Diffuser:
 
     def add_noise(self, x_0, t):
         T = self.num_timesteps
-        t = t.to(torch.long)
+        t = t.to(device=self.device, dtype=torch.long)
         assert (t >= 1).all() and (t <= T).all()
-        t_idx = t - 1
+        t_idx = t - 1  # 0..T-1
 
-        alpha_bar = self.alpha_bars[t_idx]
-        N = alpha_bar.size(0)
-        alpha_bar = alpha_bar.view(N, 1, 1, 1)
+        alpha_bar = self.alpha_bars.index_select(0, t_idx)  # (B,)
+        B = alpha_bar.size(0)
+        alpha_bar = alpha_bar.view(B, 1, 1, 1)
 
         noise = torch.randn_like(x_0, device=self.device)
         x_t = torch.sqrt(alpha_bar) * x_0 + torch.sqrt(1 - alpha_bar) * noise
@@ -40,31 +40,32 @@ class Diffuser:
 
     def denoise(self, model, x, t, labels=None):
         T = self.num_timesteps
-        t = t.to(torch.long)
+        t = t.to(device=self.device, dtype=torch.long)
         assert (t >= 1).all() and (t <= T).all()
 
-        t_idx = t - 1
-        alpha = self.alphas[t_idx]
-        alpha_bar = self.alpha_bars[t_idx]
-        alpha_bar_prev = self.alpha_bars[t_idx-1]
+        t_idx = t - 1  # 0..T-1
+        B = x.size(0)
 
-        N = alpha.size(0)
-        alpha = alpha.view(N, 1, 1, 1)
-        alpha_bar = alpha_bar.view(N, 1, 1, 1)
-        alpha_bar_prev = alpha_bar_prev.view(N, 1, 1, 1)
+        alpha = self.alphas.index_select(0, t_idx).view(B, 1, 1, 1)
+        alpha_bar = self.alpha_bars.index_select(0, t_idx).view(B, 1, 1, 1)
+        # 前ステップは t==1 のとき未定義になるため、clampしてから後でstdを0にする
+        t_idx_prev = (t_idx - 1).clamp(min=0)
+        alpha_bar_prev = self.alpha_bars.index_select(0, t_idx_prev).view(B, 1, 1, 1)
 
         model.eval()
         with torch.no_grad():
-            eps = model(x, t, labels)
-        
+            out = model(x, t, labels)
+            eps = out[0] if isinstance(out, (tuple, list)) else out
         model.train()
 
-        noise = torch.randn_like(x, device=self.device)
-        noise[t == 1] = 0
-
-        mu = (x - ((1-alpha) / torch.sqrt(1-alpha_bar)) * eps) / torch.sqrt(alpha)
+        # 逆拡散の平均と分散
+        mu = (x - ((1 - alpha) / torch.sqrt(1 - alpha_bar)) * eps) / torch.sqrt(alpha)
         std = torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar) * (1 - alpha))
-        return mu + noise * std
+
+        # t==1 のときは最後のステップなのでノイズを加えない
+        z = torch.randn_like(x, device=self.device)
+        z[t == 1] = 0
+        return mu + std * z
 
     def sample(self, model, x_shape=(20, 3, 32, 32), labels=None):
         b_size = x_shape[0]
@@ -74,7 +75,7 @@ class Diffuser:
             labels = torch.randint(0, 10, (len(x), ), device=self.device)
 
         for i in tqdm(range(self.num_timesteps, 0, -1)):
-            t = torch.tensor([i] * b_size, device=self.device, dtype=torch.long)
+            t = torch.full((b_size,), i, device=self.device, dtype=torch.long)
             x = self.denoise(model, x, t, labels)
 
         imgs = [self.reverse2img(x[i]) for i in range(b_size)]

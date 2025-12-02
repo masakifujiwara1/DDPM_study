@@ -23,7 +23,7 @@ lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
 
-is_deccorrelation = False  # decorrelation lossを使うかどうか
+is_deccorrelation = True  # decorrelation lossを使うかどうか
 deccorrelation_beta = 0.02
 
 def show_images(imgs, rows=2, cols=10, labels=None):
