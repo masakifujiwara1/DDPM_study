@@ -11,6 +11,7 @@ from PIL import Image
 # from tqdm import tqdm
 from model.utils.unet import UNet, UNetCond, UNetCondDeep
 from model.utils.diffuser import Diffuser
+from model.utils.decorrelation import DecorrelationLoss
 import wandb
 import copy
 # from wandb import Alertlevel
@@ -50,6 +51,8 @@ class TrainingConfig:
     overwrite_output_dir = True  # 再実行時に既存の出力ディレクトリを上書きするか
     seed = 0
     run_name = "ddpm-cifar10-64"  # Wandb の run 名
+    is_decorrelation = True  # デコレーションロスを使用するかどうか
+    decorrelation_loss_beta = 0.02  # デコレーションロスの重み
 
 config = TrainingConfig()
 
@@ -78,7 +81,7 @@ preprocess = transforms.Compose([
     transforms.Normalize([0.5], [0.5]),
 ])
 # dataset = torchvision.datasets.CIFAR10(root='./data', transform=preprocess, download=True)
-dataset = torchvision.datasets.ImageFolder(root='~/../host_files/cifar10-64/train', transform=preprocess)
+dataset = torchvision.datasets.ImageFolder(root='/home/fmasa/cudagl_docker/docker_share/cifar10-64/train', transform=preprocess)
 train_dataloader = DataLoader(dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=2)
 
 # diffuser = Diffuser(num_timesteps=num_timeseteps, device=device)
@@ -123,6 +126,19 @@ lr_scheduler = get_cosine_schedule_with_warmup(
     num_warmup_steps=config.lr_warmup_steps,
     num_training_steps=config.num_epochs * len(train_dataloader)
 )
+
+# 特徴量を保存するための辞書
+features = {}
+
+# フック関数
+def get_mid_block_output(module, input, output):
+    features['mid_block'] = output
+
+# フックの登録
+hook_handle = model.mid_block.register_forward_hook(get_mid_block_output)
+print("Hook registered.")
+
+criterion_decorrelation = DecorrelationLoss()
 
 def make_grid(images, rows, cols):
     w, h = images[0].size
@@ -209,6 +225,9 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         progress_bar = tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
         progress_bar.set_description(f"epoch {epoch}")
 
+        S_top100_sum = None
+        cnt = 0
+
         for step, batch in enumerate(train_dataloader):
             clean_images = batch[0]
             labels = batch[1]  # クラスラベルを取得
@@ -228,17 +247,52 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 # UNet2DConditionModel requires encoder_hidden_states positional arg; pass None
                 noise_pred = model(noisy_images, timesteps, encoder_hidden_states=None, class_labels=labels)["sample"]
                 loss = F.mse_loss(noise_pred, noise)
+
+                # デコレーションロスの計算
+                mid_block_features = features['mid_block']
+                loss_reg, corr = criterion_decorrelation(mid_block_features)
+                if config.is_decorrelation:
+                    loss += config.decorrelation_loss_beta * loss_reg
+
+                # 特異値分解
+                U, S, V = torch.svd(corr.float())  # Half → float32 に変換してからSVDを実行
+                topk_vals, topk_idx = torch.topk(S, k=100, largest=True, sorted=True)
+                S_top100 = topk_vals
+
                 accelerator.backward(loss)
 
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
+                if S_top100_sum is None:
+                    S_top100_sum = S_top100.detach()
+                else:
+                    S_top100_sum += S_top100.detach()
+
+                cnt += 1
+
             progress_bar.update(1)
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
             global_step += 1
+
+        S_top100_avg = S_top100_sum / cnt
+        try:
+            s_vals = S_top100_avg.detach().cpu().numpy()
+            fig_s = plt.figure(figsize=(8, 4))
+            plt.plot(range(1, len(s_vals) + 1), s_vals, marker='o', linewidth=1)
+            plt.title(f'Top-100 singular values (epoch {epoch+1})')
+            plt.xlabel('rank (1-100)')
+            plt.ylabel('singular value')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            wandb.log({"top100_singular_values": wandb.Image(fig_s, caption=f"Epoch {epoch+1} S top-100")}, step=global_step)
+            plt.close(fig_s)
+        except Exception as e:
+            # 例外が出ても学習は止めない
+            print(f"[warn] plotting top-100 S failed: {e}")
 
         # 各エポック後にサンプル画像を評価用に生成してモデルを保存
         if accelerator.is_main_process:
