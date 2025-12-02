@@ -26,6 +26,7 @@ class Diffuser:
 
     def add_noise(self, x_0, t):
         T = self.num_timesteps
+        t = t.to(torch.long)
         assert (t >= 1).all() and (t <= T).all()
         t_idx = t - 1
 
@@ -39,6 +40,7 @@ class Diffuser:
 
     def denoise(self, model, x, t, labels=None):
         T = self.num_timesteps
+        t = t.to(torch.long)
         assert (t >= 1).all() and (t <= T).all()
 
         t_idx = t - 1

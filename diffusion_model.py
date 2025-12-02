@@ -8,19 +8,23 @@ from torch.optim import Adam, AdamW
 import torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm
-from model.utils.unet import UNet, UNetCond, UNetCondDeep
+from model.unet import UNet, UNetCond, UNetCondDeep
 from model.utils.diffuser import Diffuser
+from model.utils.decorrelation import DecorrelationLoss
 import wandb
 import copy
 # from wandb import Alertlevel
 
 img_size = 32
-b_size = 128
+b_size = 512
 num_timeseteps = 1000
 epochs = 100
 lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(device)
+
+is_deccorrelation = False  # decorrelation lossを使うかどうか
+deccorrelation_beta = 0.02
 
 def show_images(imgs, rows=2, cols=10, labels=None):
     # imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()  # Convert to (N, H, W, C) and move to CPU
@@ -49,6 +53,7 @@ model = UNetCondDeep(in_ch=3, num_labels=10)
 model = model.to(device)
 optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.0)
 scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(dataloader), epochs=epochs)
+calc_loss_reg = DecorrelationLoss().to(device)
 losses = []
 
 config_dict = {
@@ -61,6 +66,8 @@ config_dict = {
     "optimizer": optimizer,
     "loss_function": "MSELoss",
     "dataloader": dataloader,
+    "decorrelation": is_deccorrelation,
+    "deccorrelation_beta": deccorrelation_beta,
 }
 
 # ema initialization
@@ -73,6 +80,7 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw-noema-
 
     for epoch in range(epochs):
         loss_sum = 0.0
+        S_top100_sum = None
         cnt = 0
 
         for imgs, labels in tqdm(dataloader):
@@ -87,8 +95,20 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw-noema-
             t = torch.randint(1, num_timeseteps, (len(x), ), device=device)
             # print(f"t min: {t.min()}, t max: {t.max()}")
             x_noisy, noise = diffuser.add_noise(x, t)
-            noise_pred = model(x_noisy, t, labels)
+            noise_pred, feature = model(x_noisy, t, labels)
             loss = F.mse_loss(noise, noise_pred)
+
+            # loss_regと相関行列の計算
+            loss_reg, corr = calc_loss_reg(feature)
+            if is_deccorrelation:
+                # decorrelation lossを加算
+                loss = loss + deccorrelation_beta * loss_reg
+
+            # 特異値分解で相関行列の確認
+            U, S, V = torch.svd(corr)
+            # print(f"Singular values of correlation matrix: {S}")
+            topk_vals, topk_idx = torch.topk(S, k=100, largest=True, sorted=True)
+            S_top100 = topk_vals
 
             loss.backward()
             optimizer.step()
@@ -103,7 +123,30 @@ with wandb.init(project="DDPM_study", group="cifar10", name="deepU3-adamw-noema-
             loss_sum += loss.item()
             cnt += 1
 
+            if S_top100_sum is None:
+                S_top100_sum = S_top100
+            else:
+                S_top100_sum += S_top100
+
         loss_avg = loss_sum / cnt
+        S_top100_avg = S_top100_sum / cnt
+
+        # 上位100特異値の折れ線グラフを作成し、wandbに保存
+        try:
+            s_vals = S_top100_avg.detach().cpu().numpy()
+            fig_s = plt.figure(figsize=(8, 4))
+            plt.plot(range(1, len(s_vals) + 1), s_vals, marker='o', linewidth=1)
+            plt.title(f'Top-100 singular values (epoch {epoch+1})')
+            plt.xlabel('rank (1-100)')
+            plt.ylabel('singular value')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            wandb.log({"top100_singular_values": wandb.Image(fig_s, caption=f"Epoch {epoch+1} S top-100")}, step=epoch)
+            plt.close(fig_s)
+        except Exception as e:
+            # 例外が出ても学習は止めない
+            print(f"[warn] plotting top-100 S failed: {e}")
+
         wandb.log({"loss": loss_avg, "learning_rate": scheduler.get_last_lr()[0]}, step=epoch)
         losses.append(loss_avg)
         print(f"Epoch {epoch}, Loss: {loss_avg}")
